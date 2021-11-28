@@ -1,15 +1,14 @@
 const { expectRevert, time } = require('@openzeppelin/test-helpers');
 const { assert } = require('chai');
-const CakeToken = artifacts.require('CakeToken');
-const SyrupBar = artifacts.require('SyrupBar');
+const SpyToken = artifacts.require('SpyToken');
 const MasterChef = artifacts.require('MasterChef');
+const SpyReferral = artifacts.require('SpyReferral');
 const MockBEP20 = artifacts.require('libs/MockBEP20');
 const LotteryRewardPool = artifacts.require('LotteryRewardPool');
 
-contract('MasterChef', ([alice, bob, carol, dev, minter]) => {
+contract('LotteryPool', ([alice, bob, carol, referrer, dev, minter]) => {
   beforeEach(async () => {
-    this.cake = await CakeToken.new({ from: minter });
-    this.syrup = await SyrupBar.new(this.cake.address, { from: minter });
+    this.spy = await SpyToken.new({ from: minter });
     this.lp1 = await MockBEP20.new('LPToken', 'LP1', '1000000', {
       from: minter,
     });
@@ -22,16 +21,19 @@ contract('MasterChef', ([alice, bob, carol, dev, minter]) => {
     this.lp4 = await MockBEP20.new('LPToken', 'LP4', '1000000', {
       from: minter,
     });
-    this.chef = await MasterChef.new(
-      this.cake.address,
-      this.syrup.address,
-      dev,
-      '10',
-      '10',
-      { from: minter }
-    );
-    await this.cake.transferOwnership(this.chef.address, { from: minter });
-    await this.syrup.transferOwnership(this.chef.address, { from: minter });
+
+    this.chef = await MasterChef.new(this.spy.address, '1000', '10', { from: minter });
+    await this.chef.setHarvestInterval(0, { from: minter });
+    await this.spy.transferOwnership(this.chef.address, { from: minter });
+    this.referral = await SpyReferral.new({ from: minter });
+    await this.referral.updateOperator(this.chef.address, true, { from: minter });
+    await this.chef.setSpyReferral(this.referral.address, { from: minter });
+
+    const miningPool = await this.chef.miningPool();
+    const marketingPool = await this.chef.marketingPool();
+
+    await this.spy.transfer(miningPool, '10000', {from: minter});
+    await this.spy.transfer(marketingPool, '10000', {from: minter});
 
     await this.lp1.transfer(bob, '2000', { from: minter });
     await this.lp2.transfer(bob, '2000', { from: minter });
@@ -46,7 +48,7 @@ contract('MasterChef', ([alice, bob, carol, dev, minter]) => {
     await time.advanceBlockTo('70');
     this.lottery = await LotteryRewardPool.new(
       this.chef.address,
-      this.cake.address,
+      this.spy.address,
       dev,
       carol,
       { from: minter }
@@ -63,44 +65,57 @@ contract('MasterChef', ([alice, bob, carol, dev, minter]) => {
       '10'
     );
 
-    await this.lottery.startFarming(4, this.lp4.address, '1', { from: dev });
     await time.advanceBlockTo('80');
+    await this.lottery.startFarming(3, this.lp4.address, '1', referrer, { from: dev });
+    await time.advanceBlockTo('84');
 
-    assert.equal((await this.lottery.pendingReward('4')).toString(), '3');
+    assert.equal((await this.lottery.pendingReward('3')).toString(), '409');
     assert.equal(
-      (await this.cake.balanceOf(this.lottery.address)).toString(),
+      (await this.spy.balanceOf(this.lottery.address)).toString(),
       '0'
     );
 
-    await this.lottery.harvest(4, { from: dev });
-    // console.log(await this.lottery.pendingReward(4).toString())
+    await this.lottery.harvest(3, { from: dev });
 
     assert.equal(
-      (await this.cake.balanceOf(this.lottery.address)).toString(),
+      (await this.spy.balanceOf(this.lottery.address)).toString(),
       '0'
     );
-    assert.equal((await this.cake.balanceOf(carol)).toString(), '5');
+    assert.equal((await this.spy.balanceOf(carol)).toString(), '533');
   });
 
   it('setReceiver', async () => {
     this.lottery = await LotteryRewardPool.new(
       this.chef.address,
-      this.cake.address,
+      this.spy.address,
       dev,
       carol,
       { from: minter }
     );
-    await this.lp1.transfer(this.lottery.address, '10', { from: minter });
+    await this.lp1.transfer(this.lottery.address, '100', { from: minter });
     await this.chef.add('1000', this.lp1.address, true, { from: minter });
-    await this.lottery.startFarming(1, this.lp1.address, '1', {
+
+    assert.equal((await this.lp1.balanceOf(this.lottery.address)).toString(), "100");
+
+
+    await time.advanceBlockTo('110');
+    await this.lottery.startFarming(0, this.lp1.address, '100', referrer, {
       from: dev,
     });
-    await this.lottery.harvest(1, { from: dev });
-    assert.equal((await this.cake.balanceOf(carol)).toString(), '7');
+    assert.equal((await this.lp1.balanceOf(this.lottery.address)).toString(), "0");
+    assert.equal((await this.spy.balanceOf(this.lottery.address)).toString(), "0");
+    assert.equal((await this.spy.balanceOf(referrer)).toString(), '0');
+    assert.equal((await time.latestBlock()).toString(), "111");
+    await this.lottery.harvest(0, { from: dev });
+    assert.equal((await time.latestBlock()).toString(), "112");
+    assert.equal((await this.spy.balanceOf(this.lottery.address)).toString(), "0");
+    assert.equal((await this.spy.balanceOf(referrer)).toString(), '25');
+    assert.equal((await this.spy.balanceOf(carol)).toString(), '488');
+    
     await this.lottery.setReceiver(alice, { from: dev });
-    assert.equal((await this.lottery.pendingReward('1')).toString(), '7');
-    await this.lottery.harvest(1, { from: dev });
-    assert.equal((await this.cake.balanceOf(alice)).toString(), '15');
+    assert.equal((await this.lottery.pendingReward('0')).toString(), '500');
+    await this.lottery.harvest(0, { from: dev });
+    assert.equal((await this.spy.balanceOf(alice)).toString(), '975');
   });
 
   it('emergencyWithdraw', async () => {});
@@ -108,7 +123,7 @@ contract('MasterChef', ([alice, bob, carol, dev, minter]) => {
   it('update admin', async () => {
     this.lottery = await LotteryRewardPool.new(
       this.chef.address,
-      this.cake.address,
+      this.spy.address,
       dev,
       carol,
       { from: minter }
@@ -118,7 +133,7 @@ contract('MasterChef', ([alice, bob, carol, dev, minter]) => {
     assert.equal(await this.lottery.adminAddress(), alice);
     await this.chef.add('1000', this.lp1.address, true, { from: minter });
     await expectRevert(
-      this.lottery.startFarming(1, this.lp1.address, '1', { from: dev }),
+      this.lottery.startFarming(0, this.lp1.address, '1', referrer, { from: dev }),
       'admin: wut?'
     );
   });

@@ -1,13 +1,13 @@
 const { expectRevert, time } = require('@openzeppelin/test-helpers');
 const { assert } = require('chai');
-const CakeToken = artifacts.require('CakeToken');
+const SpyToken = artifacts.require('SpyToken');
 const BnbStaking = artifacts.require('BnbStaking');
 const MockBEP20 = artifacts.require('libs/MockBEP20');
 const WBNB = artifacts.require('libs/WBNB');
 
 contract('BnbStaking.......', async ([alice, bob, admin, dev, minter]) => {
   beforeEach(async () => {
-    this.rewardToken = await CakeToken.new({ from: minter });
+    this.rewardToken = await SpyToken.new({ from: minter });
     this.lpToken = await MockBEP20.new('LPToken', 'LP1', '1000000', {
       from: minter,
     });
@@ -22,7 +22,7 @@ contract('BnbStaking.......', async ([alice, bob, admin, dev, minter]) => {
       this.wBNB.address,
       { from: minter }
     );
-    await this.rewardToken.mint(this.bnbChef.address, 100000, { from: minter });
+    await this.rewardToken.transfer(this.bnbChef.address, 100000, { from: minter });
   });
 
   it('deposit/withdraw', async () => {
@@ -82,7 +82,7 @@ contract('BnbStaking.......', async ([alice, bob, admin, dev, minter]) => {
       'caller is not the owner'
     );
     await this.bnbChef.emergencyRewardWithdraw(1000, { from: minter });
-    assert.equal((await this.rewardToken.balanceOf(minter)).toString(), '1000');
+    assert.equal((await this.rewardToken.balanceOf(minter)).toString(), '99901000');
   });
 
   it('setLimitAmount', async () => {

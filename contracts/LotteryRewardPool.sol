@@ -13,16 +13,16 @@ contract LotteryRewardPool is Ownable {
     address public adminAddress;
     address public receiver;
     IBEP20 public lptoken;
-    IBEP20 public cake;
+    IBEP20 public spy;
 
     constructor(
         MasterChef _chef,
-        IBEP20 _cake,
+        IBEP20 _spy,
         address _admin,
         address _receiver
     ) public {
         chef = _chef;
-        cake = _cake;
+        spy = _spy;
         adminAddress = _admin;
         receiver = _receiver;
     }
@@ -36,16 +36,16 @@ contract LotteryRewardPool is Ownable {
         _;
     }
 
-    function startFarming(uint256 _pid, IBEP20 _lptoken, uint256 _amount) external onlyAdmin {
+    function startFarming(uint256 _pid, IBEP20 _lptoken, uint256 _amount, address _referrer) external onlyAdmin {
         _lptoken.safeApprove(address(chef), _amount);
-        chef.deposit(_pid, _amount);
+        chef.deposit(_pid, _amount, _referrer);
         emit StartFarming(msg.sender, _pid);
     }
 
     function  harvest(uint256 _pid) external onlyAdmin {
-        chef.deposit(_pid, 0);
-        uint256 balance = cake.balanceOf(address(this));
-        cake.safeTransfer(receiver, balance);
+        chef.deposit(_pid, 0, address(0));
+        uint256 balance = spy.balanceOf(address(this));
+        spy.safeTransfer(receiver, balance);
         emit Harvest(msg.sender, _pid);
     }
 
@@ -54,12 +54,12 @@ contract LotteryRewardPool is Ownable {
     }
 
     function  pendingReward(uint256 _pid) external view returns (uint256) {
-        return chef.pendingCake(_pid, address(this));
+        return chef.pendingSpy(_pid, address(this));
     }
 
     // EMERGENCY ONLY.
     function emergencyWithdraw(IBEP20 _token, uint256 _amount) external onlyOwner {
-        cake.safeTransfer(address(msg.sender), _amount);
+        spy.safeTransfer(address(msg.sender), _amount);
         emit EmergencyWithdraw(msg.sender, _amount);
     }
 

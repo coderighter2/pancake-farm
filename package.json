@@ -5,6 +5,8 @@
   "scripts": {
     "migrate": "truffle migrate --network bscTestnet --reset",
     "compile": "truffle compile --network bscTestnet",
+    "compile-all": "truffle compile --network bscTestnet --all",
+    "build": "truffle build",
     "test": "npx builder test",
     "coverage": "npx builder coverage"
   },
@@ -23,6 +25,7 @@
     "chai": "^4.2.0",
     "ethereum-waffle": "^3.0.0",
     "ethers": "^5.0.14",
+    "fs": "0.0.1-security",
     "solidity-coverage": "^0.7.13",
     "truffle-hdwallet-provider": "^1.0.17",
     "truffle-plugin-verify": "^0.4.0",

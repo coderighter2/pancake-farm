@@ -5,28 +5,29 @@ import '@pancakeswap/pancake-swap-lib/contracts/token/BEP20/IBEP20.sol';
 import '@pancakeswap/pancake-swap-lib/contracts/token/BEP20/SafeBEP20.sol';
 import '@pancakeswap/pancake-swap-lib/contracts/access/Ownable.sol';
 
-import "./CakeToken.sol";
-import "./SyrupBar.sol";
+import "./SpyToken.sol";
+import "./SpyPool.sol";
+import "./libs/ISpyReferral.sol";
 
 // import "@nomiclabs/buidler/console.sol";
 
 interface IMigratorChef {
-    // Perform LP token migration from legacy PancakeSwap to CakeSwap.
+    // Perform LP token migration from legacy PancakeSwap to SpySwap.
     // Take the current LP token address and return the new LP token address.
     // Migrator should have full access to the caller's LP token.
     // Return the new LP token address.
     //
     // XXX Migrator must have allowance access to PancakeSwap LP tokens.
-    // CakeSwap must mint EXACTLY the same amount of CakeSwap LP tokens or
+    // SpySwap must mint EXACTLY the same amount of SpySwap LP tokens or
     // else something bad will happen. Traditional PancakeSwap does not
     // do that so be careful!
     function migrate(IBEP20 token) external returns (IBEP20);
 }
 
-// MasterChef is the master of Cake. He can make Cake and he is a fair guy.
+// MasterChef is the master of SPY. He can make SPY and he is a fair guy.
 //
 // Note that it's ownable and the owner wields tremendous power. The ownership
-// will be transferred to a governance smart contract once CAKE is sufficiently
+// will be transferred to a governance smart contract once SPY is sufficiently
 // distributed and the community can show to govern itself.
 //
 // Have fun reading it. Hopefully it's bug-free. God bless.
@@ -38,14 +39,16 @@ contract MasterChef is Ownable {
     struct UserInfo {
         uint256 amount;     // How many LP tokens the user has provided.
         uint256 rewardDebt; // Reward debt. See explanation below.
+        uint256 rewardLockedUp;  // Reward locked up.
+        uint256 nextHarvestUntil; // When can the user harvest again.
         //
-        // We do some fancy math here. Basically, any point in time, the amount of CAKEs
+        // We do some fancy math here. Basically, any point in time, the amount of SPYs
         // entitled to a user but is pending to be distributed is:
         //
-        //   pending reward = (user.amount * pool.accCakePerShare) - user.rewardDebt
+        //   pending reward = (user.amount * pool.accSpyPerShare) - user.rewardDebt
         //
         // Whenever a user deposits or withdraws LP tokens to a pool. Here's what happens:
-        //   1. The pool's `accCakePerShare` (and `lastRewardBlock`) gets updated.
+        //   1. The pool's `accSpyPerShare` (and `lastRewardBlock`) gets updated.
         //   2. User receives the pending reward sent to his/her address.
         //   3. User's `amount` gets updated.
         //   4. User's `rewardDebt` gets updated.
@@ -54,21 +57,28 @@ contract MasterChef is Ownable {
     // Info of each pool.
     struct PoolInfo {
         IBEP20 lpToken;           // Address of LP token contract.
-        uint256 allocPoint;       // How many allocation points assigned to this pool. CAKEs to distribute per block.
-        uint256 lastRewardBlock;  // Last block number that CAKEs distribution occurs.
-        uint256 accCakePerShare; // Accumulated CAKEs per share, times 1e12. See below.
+        uint256 allocPoint;       // How many allocation points assigned to this pool. SPYs to distribute per block.
+        uint256 lastRewardBlock;  // Last block number that SPYs distribution occurs.
+        uint256 accSpyPerShare; // Accumulated SPYs per share, times 1e30. See below.
+        uint256 harvestInterval;  // Harvest interval in seconds
     }
 
-    // The CAKE TOKEN!
-    CakeToken public cake;
-    // The SYRUP TOKEN!
-    SyrupBar public syrup;
-    // Dev address.
-    address public devaddr;
-    // CAKE tokens created per block.
-    uint256 public cakePerBlock;
-    // Bonus muliplier for early cake makers.
+    // The SPY TOKEN!
+    SpyToken public spy;
+
+    // The mining pool
+    SpyPool public miningPool;
+
+    // The mining pool
+    SpyPool public marketingPool;
+    // SPY tokens created per block.
+    uint256 public spyPerBlock;
+    // Bonus muliplier for early spy makers.
     uint256 public BONUS_MULTIPLIER = 1;
+
+    uint256 public harvestInterval = 12 hours;
+    // Max harvest interval: 14 days.
+    uint256 public constant MAXIMUM_HARVEST_INTERVAL = 14 days;
     // The migrator contract. It has a lot of power. Can only be set through governance (owner).
     IMigratorChef public migrator;
 
@@ -78,33 +88,35 @@ contract MasterChef is Ownable {
     mapping (uint256 => mapping (address => UserInfo)) public userInfo;
     // Total allocation points. Must be the sum of all allocation points in all pools.
     uint256 public totalAllocPoint = 0;
-    // The block number when CAKE mining starts.
+    // The block number when SPY mining starts.
     uint256 public startBlock;
+    // Total locked up rewards
+    uint256 public totalLockedUpRewards;
+
+    // SPY referral contract address.
+    ISpyReferral public spyReferral;
+    // Referral commission rate in basis points.
+    uint16 public referralCommissionRate = 500;
+    // Max referral commission rate: 10%.
+    uint16 public constant MAXIMUM_REFERRAL_COMMISSION_RATE = 1000;
 
     event Deposit(address indexed user, uint256 indexed pid, uint256 amount);
     event Withdraw(address indexed user, uint256 indexed pid, uint256 amount);
     event EmergencyWithdraw(address indexed user, uint256 indexed pid, uint256 amount);
+    event ReferralCommissionPaid(address indexed user, address indexed referrer, uint256 commissionAmount);
+    event RewardLockedUp(address indexed user, uint256 indexed pid, uint256 amountLockedUp);
 
     constructor(
-        CakeToken _cake,
-        SyrupBar _syrup,
-        address _devaddr,
-        uint256 _cakePerBlock,
+        SpyToken _spy,
+        uint256 _spyPerBlock,
         uint256 _startBlock
     ) public {
-        cake = _cake;
-        syrup = _syrup;
-        devaddr = _devaddr;
-        cakePerBlock = _cakePerBlock;
-        startBlock = _startBlock;
 
-        // staking pool
-        poolInfo.push(PoolInfo({
-            lpToken: _cake,
-            allocPoint: 1000,
-            lastRewardBlock: startBlock,
-            accCakePerShare: 0
-        }));
+        miningPool = new SpyPool("SPY Mining Pool", _spy);
+        marketingPool = new SpyPool("SPY Marketing Pool", _spy);
+        spy = _spy;
+        spyPerBlock = _spyPerBlock;
+        startBlock = _startBlock;
 
         totalAllocPoint = 1000;
 
@@ -130,18 +142,26 @@ contract MasterChef is Ownable {
             lpToken: _lpToken,
             allocPoint: _allocPoint,
             lastRewardBlock: lastRewardBlock,
-            accCakePerShare: 0
+            accSpyPerShare: 0,
+            harvestInterval: harvestInterval
         }));
         updateStakingPool();
     }
 
-    // Update the given pool's CAKE allocation point. Can only be called by the owner.
+    // Update the given pool's SPY allocation point. Can only be called by the owner.
     function set(uint256 _pid, uint256 _allocPoint, bool _withUpdate) public onlyOwner {
+        set2(_pid, _allocPoint, harvestInterval, _withUpdate);
+    }
+
+    // Update the give pool's SPY allocation point with harvest interval
+    function set2(uint256 _pid, uint256 _allocPoint, uint256 _harvestInterval, bool _withUpdate) public onlyOwner {
+        require(_harvestInterval <= MAXIMUM_HARVEST_INTERVAL, "set: invalid harvest interval");
         if (_withUpdate) {
             massUpdatePools();
         }
         uint256 prevAllocPoint = poolInfo[_pid].allocPoint;
         poolInfo[_pid].allocPoint = _allocPoint;
+        poolInfo[_pid].harvestInterval = _harvestInterval;
         if (prevAllocPoint != _allocPoint) {
             totalAllocPoint = totalAllocPoint.sub(prevAllocPoint).add(_allocPoint);
             updateStakingPool();
@@ -183,18 +203,24 @@ contract MasterChef is Ownable {
         return _to.sub(_from).mul(BONUS_MULTIPLIER);
     }
 
-    // View function to see pending CAKEs on frontend.
-    function pendingCake(uint256 _pid, address _user) external view returns (uint256) {
+    // View function to see pending SPYs on frontend.
+    function pendingSpy(uint256 _pid, address _user) external view returns (uint256) {
         PoolInfo storage pool = poolInfo[_pid];
         UserInfo storage user = userInfo[_pid][_user];
-        uint256 accCakePerShare = pool.accCakePerShare;
+        uint256 accSpyPerShare = pool.accSpyPerShare;
         uint256 lpSupply = pool.lpToken.balanceOf(address(this));
         if (block.number > pool.lastRewardBlock && lpSupply != 0) {
             uint256 multiplier = getMultiplier(pool.lastRewardBlock, block.number);
-            uint256 cakeReward = multiplier.mul(cakePerBlock).mul(pool.allocPoint).div(totalAllocPoint);
-            accCakePerShare = accCakePerShare.add(cakeReward.mul(1e12).div(lpSupply));
+            uint256 spyReward = multiplier.mul(spyPerBlock).mul(pool.allocPoint).div(totalAllocPoint);
+            accSpyPerShare = accSpyPerShare.add(spyReward.mul(1e30).div(lpSupply));
         }
-        return user.amount.mul(accCakePerShare).div(1e12).sub(user.rewardDebt);
+        return user.amount.mul(accSpyPerShare).div(1e30).sub(user.rewardDebt);
+    }
+
+    // View function to see if user can harvest SPYs.
+    function canHarvest(uint256 _pid, address _user) public view returns (bool) {
+        UserInfo storage user = userInfo[_pid][_user];
+        return block.timestamp >= user.nextHarvestUntil;
     }
 
     // Update reward variables for all pools. Be careful of gas spending!
@@ -218,95 +244,44 @@ contract MasterChef is Ownable {
             return;
         }
         uint256 multiplier = getMultiplier(pool.lastRewardBlock, block.number);
-        uint256 cakeReward = multiplier.mul(cakePerBlock).mul(pool.allocPoint).div(totalAllocPoint);
-        cake.mint(devaddr, cakeReward.div(10));
-        cake.mint(address(syrup), cakeReward);
-        pool.accCakePerShare = pool.accCakePerShare.add(cakeReward.mul(1e12).div(lpSupply));
+        uint256 spyReward = multiplier.mul(spyPerBlock).mul(pool.allocPoint).div(totalAllocPoint);
+        pool.accSpyPerShare = pool.accSpyPerShare.add(spyReward.mul(1e30).div(lpSupply));
         pool.lastRewardBlock = block.number;
     }
 
-    // Deposit LP tokens to MasterChef for CAKE allocation.
-    function deposit(uint256 _pid, uint256 _amount) public {
-
-        require (_pid != 0, 'deposit CAKE by staking');
+    // Deposit LP tokens to MasterChef for SPY allocation.
+    function deposit(uint256 _pid, uint256 _amount, address _referrer) public {
 
         PoolInfo storage pool = poolInfo[_pid];
         UserInfo storage user = userInfo[_pid][msg.sender];
         updatePool(_pid);
-        if (user.amount > 0) {
-            uint256 pending = user.amount.mul(pool.accCakePerShare).div(1e12).sub(user.rewardDebt);
-            if(pending > 0) {
-                safeCakeTransfer(msg.sender, pending);
-            }
+        if (_amount > 0 && address(spyReferral) != address(0) && _referrer != address(0) && _referrer != msg.sender) {
+            spyReferral.recordReferral(msg.sender, _referrer);
         }
+        payOrLockupPendingSpy(_pid);
         if (_amount > 0) {
             pool.lpToken.safeTransferFrom(address(msg.sender), address(this), _amount);
             user.amount = user.amount.add(_amount);
         }
-        user.rewardDebt = user.amount.mul(pool.accCakePerShare).div(1e12);
+        user.rewardDebt = user.amount.mul(pool.accSpyPerShare).div(1e30);
         emit Deposit(msg.sender, _pid, _amount);
     }
 
     // Withdraw LP tokens from MasterChef.
     function withdraw(uint256 _pid, uint256 _amount) public {
 
-        require (_pid != 0, 'withdraw CAKE by unstaking');
         PoolInfo storage pool = poolInfo[_pid];
         UserInfo storage user = userInfo[_pid][msg.sender];
         require(user.amount >= _amount, "withdraw: not good");
 
         updatePool(_pid);
-        uint256 pending = user.amount.mul(pool.accCakePerShare).div(1e12).sub(user.rewardDebt);
-        if(pending > 0) {
-            safeCakeTransfer(msg.sender, pending);
-        }
+        payOrLockupPendingSpy(_pid);
         if(_amount > 0) {
             user.amount = user.amount.sub(_amount);
             pool.lpToken.safeTransfer(address(msg.sender), _amount);
         }
-        user.rewardDebt = user.amount.mul(pool.accCakePerShare).div(1e12);
+        user.rewardDebt = user.amount.mul(pool.accSpyPerShare).div(1e30);
         emit Withdraw(msg.sender, _pid, _amount);
-    }
-
-    // Stake CAKE tokens to MasterChef
-    function enterStaking(uint256 _amount) public {
-        PoolInfo storage pool = poolInfo[0];
-        UserInfo storage user = userInfo[0][msg.sender];
-        updatePool(0);
-        if (user.amount > 0) {
-            uint256 pending = user.amount.mul(pool.accCakePerShare).div(1e12).sub(user.rewardDebt);
-            if(pending > 0) {
-                safeCakeTransfer(msg.sender, pending);
-            }
-        }
-        if(_amount > 0) {
-            pool.lpToken.safeTransferFrom(address(msg.sender), address(this), _amount);
-            user.amount = user.amount.add(_amount);
-        }
-        user.rewardDebt = user.amount.mul(pool.accCakePerShare).div(1e12);
-
-        syrup.mint(msg.sender, _amount);
-        emit Deposit(msg.sender, 0, _amount);
-    }
-
-    // Withdraw CAKE tokens from STAKING.
-    function leaveStaking(uint256 _amount) public {
-        PoolInfo storage pool = poolInfo[0];
-        UserInfo storage user = userInfo[0][msg.sender];
-        require(user.amount >= _amount, "withdraw: not good");
-        updatePool(0);
-        uint256 pending = user.amount.mul(pool.accCakePerShare).div(1e12).sub(user.rewardDebt);
-        if(pending > 0) {
-            safeCakeTransfer(msg.sender, pending);
-        }
-        if(_amount > 0) {
-            user.amount = user.amount.sub(_amount);
-            pool.lpToken.safeTransfer(address(msg.sender), _amount);
-        }
-        user.rewardDebt = user.amount.mul(pool.accCakePerShare).div(1e12);
-
-        syrup.burn(msg.sender, _amount);
-        emit Withdraw(msg.sender, 0, _amount);
     }
 
     // Withdraw without caring about rewards. EMERGENCY ONLY.
@@ -317,16 +292,113 @@ contract MasterChef is Ownable {
         emit EmergencyWithdraw(msg.sender, _pid, user.amount);
         user.amount = 0;
         user.rewardDebt = 0;
+        user.rewardLockedUp = 0;
+        user.nextHarvestUntil = 0;
     }
 
-    // Safe cake transfer function, just in case if rounding error causes pool to not have enough CAKEs.
-    function safeCakeTransfer(address _to, uint256 _amount) internal {
-        syrup.safeCakeTransfer(_to, _amount);
+    // Pay or lockup pending SPYs.
+    function payOrLockupPendingSpy(uint256 _pid) internal {
+        PoolInfo storage pool = poolInfo[_pid];
+        UserInfo storage user = userInfo[_pid][msg.sender];
+
+        if (user.nextHarvestUntil == 0) {
+            user.nextHarvestUntil = block.timestamp.add(pool.harvestInterval);
+        }
+
+        uint256 pending = user.amount.mul(pool.accSpyPerShare).div(1e30).sub(user.rewardDebt);
+        if (canHarvest(_pid, msg.sender)) {
+            if (pending > 0 || user.rewardLockedUp > 0) {
+                uint256 totalRewards = pending.add(user.rewardLockedUp);
+
+                // reset lockup
+                totalLockedUpRewards = totalLockedUpRewards.sub(user.rewardLockedUp);
+                user.rewardLockedUp = 0;
+                user.nextHarvestUntil = block.timestamp.add(pool.harvestInterval);
+
+                uint256 totalRewardsToHarvest = totalRewards;
+
+                // pay referral commision
+                payReferralCommission(msg.sender, totalRewards);
+
+                // take harvest fee
+                totalRewardsToHarvest = takeHarvestFee(totalRewardsToHarvest);
+
+                // send rewards
+                miningPool.safeTransfer(msg.sender, totalRewardsToHarvest);
+            }
+        } else if (pending > 0) {
+            user.rewardLockedUp = user.rewardLockedUp.add(pending);
+            totalLockedUpRewards = totalLockedUpRewards.add(pending);
+            emit RewardLockedUp(msg.sender, _pid, pending);
+        }
     }
 
-    // Update dev address by the previous dev.
-    function dev(address _devaddr) public {
-        require(msg.sender == devaddr, "dev: wut?");
-        devaddr = _devaddr;
+    // Withdraw spy tokens from SPY Pool.
+    function withdrawMiningPool(address _to, uint256 _amount) public onlyOwner {
+        miningPool.safeTransfer(_to, _amount);
+    }
+
+    // Withdraw spy tokens from SPY Pool.
+    function withdrawMarketingPool(address _to, uint256 _amount) public onlyOwner {
+        marketingPool.safeTransfer(_to, _amount);
+    }
+
+    // Set spyPerBlock for farming pools
+    function setSpyPerBlock(uint256 _spyPerBlock) public onlyOwner {
+        require(_spyPerBlock <= 1000, "set: invalid spyPerBlock");
+        spyPerBlock = _spyPerBlock;
+    }
+
+    // Set default harvest interval for farming pools
+    function setHarvestInterval(uint256 _harvestInterval) public onlyOwner {
+        require(_harvestInterval <= MAXIMUM_HARVEST_INTERVAL, "set: invalid harvest interval");
+        harvestInterval = _harvestInterval;
+    }
+
+    // Update the spy referral contract address by the owner
+    function setSpyReferral(ISpyReferral _spyReferral) public onlyOwner {
+        spyReferral = _spyReferral;
+    }
+
+    // Update referral commission rate by the owner
+    function setReferralCommissionRate(uint16 _referralCommissionRate) public onlyOwner {
+        require(_referralCommissionRate <= MAXIMUM_REFERRAL_COMMISSION_RATE, "setReferralCommissionRate: invalid referral commission rate basis points");
+        referralCommissionRate = _referralCommissionRate;
+    }
+
+    // Pay referral commission to the referrer who referred this user.
+    function payReferralCommission(address _user, uint256 _pending) internal {
+        if (address(spyReferral) != address(0) && referralCommissionRate > 0) {
+            address referrer = spyReferral.getReferrer(_user);
+            uint256 commissionAmount = _pending.mul(referralCommissionRate).div(10000);
+
+            if (referrer != address(0) && commissionAmount > 0) {
+                marketingPool.safeTransfer(referrer, commissionAmount);
+                spyReferral.recordReferralCommission(referrer, commissionAmount);
+                emit ReferralCommissionPaid(_user, referrer, commissionAmount);
+            }
+        }
+    }
+
+    // Take harvest fee 2.5%. 1% LP, 1% farming pool, 0.05% marketing wallet
+    function takeHarvestFee(uint256 _pending) internal returns (uint256) {
+
+        // 0.05% for marketing wallet
+        uint256 marketingAmount = _pending.mul(500).div(100000);
+
+        // 1% for farming pool
+        uint256 farmingAmount = _pending.mul(1000).div(100000);
+
+        // 1% for LP pool
+        uint256 lpAmount = _pending.mul(1000).div(100000);
+
+        uint256 remaining = _pending.sub(lpAmount).sub(farmingAmount).sub(marketingAmount);
+
+        require(remaining > 0, "Too small amount to harvest");
+
+        // send 0.5% to marketing wallet
+        miningPool.safeTransfer(address(marketingPool), marketingAmount);
+
+        return remaining;
     }
 }
