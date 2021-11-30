@@ -87,7 +87,9 @@ contract MasterChef is Ownable {
     // Info of each user that stakes LP tokens.
     mapping (uint256 => mapping (address => UserInfo)) public userInfo;
     // Total allocation points. Must be the sum of all allocation points in all pools.
-    uint256 public totalAllocPoint = 0;
+    uint256 internal totalAllocPoint_ = 0;
+    // Base allocation points.
+    uint256 public baseAllocPoint = 0;
     // The block number when SPY mining starts.
     uint256 public startBlock;
     // Total locked up rewards
@@ -118,7 +120,8 @@ contract MasterChef is Ownable {
         spyPerBlock = _spyPerBlock;
         startBlock = _startBlock;
 
-        totalAllocPoint = 1000;
+        totalAllocPoint_ = 0;
+        baseAllocPoint = 1000;
 
     }
 
@@ -130,6 +133,14 @@ contract MasterChef is Ownable {
         return poolInfo.length;
     }
 
+    function setBaseAllocPoint(uint256 baseAllocPoint_) public onlyOwner {
+        baseAllocPoint = baseAllocPoint_;
+    }
+
+    function totalAllocPoint() public view returns (uint256) {
+        return totalAllocPoint_.add(baseAllocPoint);
+    }
+
     // Add a new lp to the pool. Can only be called by the owner.
     // XXX DO NOT add the same LP token more than once. Rewards will be messed up if you do.
     function add(uint256 _allocPoint, IBEP20 _lpToken, bool _withUpdate) public onlyOwner {
@@ -137,7 +148,7 @@ contract MasterChef is Ownable {
             massUpdatePools();
         }
         uint256 lastRewardBlock = block.number > startBlock ? block.number : startBlock;
-        totalAllocPoint = totalAllocPoint.add(_allocPoint);
+        totalAllocPoint_ = totalAllocPoint_.add(_allocPoint);
         poolInfo.push(PoolInfo({
             lpToken: _lpToken,
             allocPoint: _allocPoint,
@@ -145,7 +156,6 @@ contract MasterChef is Ownable {
             accSpyPerShare: 0,
             harvestInterval: harvestInterval
         }));
-        updateStakingPool();
     }
 
     // Update the given pool's SPY allocation point. Can only be called by the owner.
@@ -163,21 +173,7 @@ contract MasterChef is Ownable {
         poolInfo[_pid].allocPoint = _allocPoint;
         poolInfo[_pid].harvestInterval = _harvestInterval;
         if (prevAllocPoint != _allocPoint) {
-            totalAllocPoint = totalAllocPoint.sub(prevAllocPoint).add(_allocPoint);
-            updateStakingPool();
-        }
-    }
-
-    function updateStakingPool() internal {
-        uint256 length = poolInfo.length;
-        uint256 points = 0;
-        for (uint256 pid = 1; pid < length; ++pid) {
-            points = points.add(poolInfo[pid].allocPoint);
-        }
-        if (points != 0) {
-            points = points.div(3);
-            totalAllocPoint = totalAllocPoint.sub(poolInfo[0].allocPoint).add(points);
-            poolInfo[0].allocPoint = points;
+            totalAllocPoint_ = totalAllocPoint_.sub(prevAllocPoint).add(_allocPoint);
         }
     }
 
@@ -211,7 +207,8 @@ contract MasterChef is Ownable {
         uint256 lpSupply = pool.lpToken.balanceOf(address(this));
         if (block.number > pool.lastRewardBlock && lpSupply != 0) {
             uint256 multiplier = getMultiplier(pool.lastRewardBlock, block.number);
-            uint256 spyReward = multiplier.mul(spyPerBlock).mul(pool.allocPoint).div(totalAllocPoint);
+            uint256 allocPoint = totalAllocPoint();
+            uint256 spyReward = multiplier.mul(spyPerBlock).mul(pool.allocPoint).div(allocPoint);
             accSpyPerShare = accSpyPerShare.add(spyReward.mul(1e30).div(lpSupply));
         }
         return user.amount.mul(accSpyPerShare).div(1e30).sub(user.rewardDebt);
@@ -244,7 +241,8 @@ contract MasterChef is Ownable {
             return;
         }
         uint256 multiplier = getMultiplier(pool.lastRewardBlock, block.number);
-        uint256 spyReward = multiplier.mul(spyPerBlock).mul(pool.allocPoint).div(totalAllocPoint);
+        uint256 allocPoint = totalAllocPoint();
+        uint256 spyReward = multiplier.mul(spyPerBlock).mul(pool.allocPoint).div(allocPoint);
         pool.accSpyPerShare = pool.accSpyPerShare.add(spyReward.mul(1e30).div(lpSupply));
         pool.lastRewardBlock = block.number;
     }
