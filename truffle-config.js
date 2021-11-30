@@ -17,7 +17,7 @@ module.exports = {
       port: 7545,
       network_id: "*"
     },
-    testnet: {
+    bsctest: {
       provider: () => provider,
       network_id: 97,
       confirmations: 10,

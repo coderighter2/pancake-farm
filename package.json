@@ -1,34 +1,35 @@
 {
-  "name": "PancakeSwap",
+  "name": "SPYFarm",
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
-    "migrate": "truffle migrate --network bscTestnet --reset",
-    "compile": "truffle compile --network bscTestnet",
-    "compile-all": "truffle compile --network bscTestnet --all",
+    "deploy": "npx hardhat run ./scripts/deploy.js",
+    "compile": "truffle compile --network bsctest",
+    "compile-all": "truffle compile --network bsctest --all",
     "build": "truffle build",
-    "test": "npx builder test",
-    "coverage": "npx builder coverage"
+    "test": "npx hardhat test",
+    "coverage": "npx hardhat coverage"
   },
   "dependencies": {
     "@openzeppelin/test-helpers": "^0.5.6",
     "@pancakeswap/pancake-swap-lib": "^0.0.1",
     "truffle": "^5.1.58",
-    "truffle-flattener": "^1.4.4"
+    "truffle-flattener": "^1.4.4",
+    "dotenv": "^8.2.0"
   },
   "devDependencies": {
-    "@nomiclabs/buidler": "^1.4.7",
-    "@nomiclabs/buidler-ethers": "^2.0.0",
-    "@nomiclabs/buidler-truffle5": "^1.3.4",
-    "@nomiclabs/buidler-waffle": "^2.0.0",
-    "@nomiclabs/buidler-web3": "^1.3.4",
-    "chai": "^4.2.0",
-    "ethereum-waffle": "^3.0.0",
-    "ethers": "^5.0.14",
+    "@nomiclabs/hardhat-ethers": "^2.0.2",
+    "@nomiclabs/hardhat-etherscan": "^2.1.8",
+    "@nomiclabs/hardhat-truffle5": "^2.0.2",
+    "@nomiclabs/hardhat-waffle": "^2.0.1",
+    "@nomiclabs/hardhat-web3": "^2.0.0",
+    "chai": "^4.3.4",
+    "ethereum-waffle": "^3.4.0",
+    "ethers": "^5.5.1",
     "fs": "0.0.1-security",
-    "solidity-coverage": "^0.7.13",
+    "hardhat": "^2.7.0",
+    "solidity-coverage": "^0.7.17",
     "truffle-hdwallet-provider": "^1.0.17",
-    "truffle-plugin-verify": "^0.4.0",
-    "web3": "^1.3.0"
+    "web3": "^1.6.1"
   }
 }

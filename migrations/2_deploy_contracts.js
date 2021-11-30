@@ -9,7 +9,7 @@ module.exports = async function(deployer, network, accounts) {
     let spyTokenAddr = '';
     let spyToken = undefined;
 
-    if (network == 'development' || network == 'testnet') {
+    if (network == 'development' || network == 'bsctest') {
         await deployer.deploy(SpyToken);
         spyToken = await SpyToken.deployed();
         spyTokenAddr = spyToken.address;
@@ -31,10 +31,12 @@ module.exports = async function(deployer, network, accounts) {
     const masterChef = await MasterChef.deployed();
     await masterChef.setSpyReferral(spyReferral.address);
 
+    await spyReferral.updateOperator(masterChef.address, true);
+
     const miningPoolAddr = await masterChef.miningPool();
     const marketingPoolAddr = await masterChef.marketingPool();
 
-    if (network == 'development' || network == 'testnet') {
+    if (network == 'development') {
 
         await spyToken.transferOwnership(masterChef.address);
 
