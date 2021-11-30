@@ -69,7 +69,7 @@ contract('LotteryPool', ([alice, bob, carol, referrer, dev, minter]) => {
     await this.lottery.startFarming(3, this.lp4.address, '1', referrer, { from: dev });
     await time.advanceBlockTo('84');
 
-    assert.equal((await this.lottery.pendingReward('3')).toString(), '409');
+    assert.equal((await this.lottery.pendingReward('3')).toString(), '375');
     assert.equal(
       (await this.spy.balanceOf(this.lottery.address)).toString(),
       '0'
@@ -81,7 +81,7 @@ contract('LotteryPool', ([alice, bob, carol, referrer, dev, minter]) => {
       (await this.spy.balanceOf(this.lottery.address)).toString(),
       '0'
     );
-    assert.equal((await this.spy.balanceOf(carol)).toString(), '533');
+    assert.equal((await this.spy.balanceOf(carol)).toString(), '488');
   });
 
   it('setReceiver', async () => {

@@ -31,6 +31,8 @@ contract('MasterChef', ([alice, bob, carol, referrer, dev, minter]) => {
 
         await this.spy.transfer(miningPool, '10000', {from: minter});
         await this.spy.transfer(marketingPool, '10000', {from: minter});
+
+        assert.equal((await this.chef.totalAllocPoint()).toString(), "1000");
     });
     it('real case', async () => {
       this.lp4 = await MockBEP20.new('LPToken', 'LP1', '1000000', { from: minter });
@@ -50,13 +52,12 @@ contract('MasterChef', ([alice, bob, carol, referrer, dev, minter]) => {
       await this.chef.add('100', this.lp3.address, true, { from: minter });
       assert.equal((await this.chef.poolLength()).toString(), "9");
 
-      await time.advanceBlockTo('190');
       await this.lp1.approve(this.chef.address, '1000', { from: alice });
       assert.equal((await this.spy.balanceOf(alice)).toString(), '0');
       await this.chef.deposit(0, '20', referrer, { from: alice });
       await this.chef.withdraw(0, '20', { from: alice });
-      assert.equal((await this.spy.balanceOf(alice)).toString(), '202');
-      assert.equal((await this.spy.balanceOf(referrer)).toString(), '10');
+      assert.equal((await this.spy.balanceOf(alice)).toString(), '293');
+      assert.equal((await this.spy.balanceOf(referrer)).toString(), '14');
     })
 
 
@@ -66,24 +67,27 @@ contract('MasterChef', ([alice, bob, carol, referrer, dev, minter]) => {
       await this.chef.add('1000', this.lp3.address, true, { from: minter });
 
       await this.lp1.approve(this.chef.address, '100', { from: alice });
-      await time.advanceBlockTo('300');
+      assert.equal((await this.spy.balanceOf(alice)).toString(), '0');
       await this.chef.deposit(0, '20', referrer, { from: alice });
       await this.chef.deposit(0, '0', constants.ZERO_ADDRESS, { from: alice });
+      assert.equal((await this.spy.balanceOf(alice)).toString(), '245');
       await this.chef.deposit(0, '40', constants.ZERO_ADDRESS, { from: alice });
+      assert.equal((await this.spy.balanceOf(alice)).toString(), '490');
       await this.chef.deposit(0, '0', constants.ZERO_ADDRESS, { from: alice });
+      assert.equal((await this.spy.balanceOf(alice)).toString(), '734');
       assert.equal((await this.lp1.balanceOf(alice)).toString(), '1940');
       await this.chef.withdraw(0, '10', { from: alice });
       assert.equal((await this.lp1.balanceOf(alice)).toString(), '1950');
-      assert.equal((await this.spy.balanceOf(alice)).toString(), '715');
-      assert.equal((await this.spy.balanceOf(referrer)).toString(), '36');
+      assert.equal((await this.spy.balanceOf(alice)).toString(), '979');
+      assert.equal((await this.spy.balanceOf(referrer)).toString(), '48');
 
       await this.lp1.approve(this.chef.address, '100', { from: bob });
       assert.equal((await this.lp1.balanceOf(bob)).toString(), '2000');
       await this.chef.deposit(0, '50', referrer, { from: bob });
       assert.equal((await this.lp1.balanceOf(bob)).toString(), '1950');
       await this.chef.deposit(0, '0', constants.ZERO_ADDRESS, { from: bob });
-      assert.equal((await this.spy.balanceOf(bob)).toString(), '91');
-      assert.equal((await this.spy.balanceOf(referrer)).toString(), '40');
+      assert.equal((await this.spy.balanceOf(bob)).toString(), '123');
+      assert.equal((await this.spy.balanceOf(referrer)).toString(), '54');
       await this.chef.emergencyWithdraw(0, { from: bob });
       assert.equal((await this.lp1.balanceOf(bob)).toString(), '2000');
     })
